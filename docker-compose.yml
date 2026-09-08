@@ -1,0 +1,33 @@
+version: "3.9"
+
+services:
+  api:
+    build: .
+    image: idpafde:latest
+    container_name: idpafde-api
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./models:/app/models
+    env_file:
+      - .env
+    restart: unless-stopped
+
+  # Optional: lightweight Postgres for future multi-client use.
+  # Kept commented out — SQLite is sufficient for v1 and keeps the
+  # stack zero-setup (`docker compose up` works with no external infra).
+  # db:
+  #   image: postgres:16-alpine
+  #   environment:
+  #     POSTGRES_USER: idpafde
+  #     POSTGRES_PASSWORD: idpafde
+  #     POSTGRES_DB: idpafde
+  #   volumes:
+  #     - ./data/postgres:/var/lib/postgresql/data
+  #   ports:
+  #     - "5432:5432"
+
+volumes:
+  data:
+  models:

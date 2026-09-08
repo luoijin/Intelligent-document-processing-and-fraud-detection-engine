@@ -1,0 +1,28 @@
+# Dependencies
+__pycache__/
+*.pyc
+*.pyo
+env/
+venv/
+
+# Data (never commit receipt images)
+data/
+data.db
+
+# Models (large artifacts)
+models/
+*.pt
+*.bin
+*.safetensors
+
+# Environment
+.env
+.env.local
+
+# Docker volumes
+docker-compose.override.yml
+
+# IDE
+.idea/
+.vscode/
+*.swp

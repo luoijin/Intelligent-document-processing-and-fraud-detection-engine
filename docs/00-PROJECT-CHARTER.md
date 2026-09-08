@@ -2,7 +2,7 @@
 
 ## 1. Purpose
 
-Build a portfolio-grade, production-shaped system that ingests unstructured
+A portfolio-grade, production-shaped system that ingests unstructured
 document images (receipts, invoices), extracts structured data via
 CV + NLP, and flags statistically anomalous or fraudulent records via a
 tabular ML model. The project exists to demonstrate **AI/ML Engineering**

@@ -1,0 +1,19 @@
+# Phase 0 — API skeleton only.
+# ML/OCR deps (opencv, easyocr, scikit-learn, xgboost) are added in
+# later phases as each layer is built; keep this image lean so
+# `docker compose up` stays fast to iterate on.
+
+# fastapi==0.111.0
+# uvicorn[standard]>=0.27.0
+# pydantic==2.8.0
+# python-multipart==0.0.4
+
+# fastapi==0.111.0
+# uvicorn==0.27.7
+# pydantic==2.8.0
+# python-multipart==0.0.4
+
+fastapi>=0.112.0
+uvicorn>=0.30.0
+pydantic>=2.8.0
+python-multipart>=0.0.9
