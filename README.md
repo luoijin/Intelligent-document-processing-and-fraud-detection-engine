@@ -10,7 +10,7 @@ A portfolio-grade, production-shaped pipeline that ingests receipt images, extra
 
 Organizations spend significant manual effort converting paper/image receipts into structured data and then auditing that data for errors or fraud. IDPAFDE builds a minimal but real version of that pipeline on one document type (receipts), demonstrating applied AI/ML engineering — pipeline design, model evaluation, and deployment — rather than novel research.
 
-For the full concept, rationale, and design rationale, see [`IDPAFDE-Concept-Paper.md`](./IDPAFDE-Concept-Paper.md). For phase-by-phase planning docs, see [`docs/`](./docs).
+For the full concept, rationale, and design rationale, see [`Concept-Paper.md`](./docs/Concept-Paper.md). For phase-by-phase planning docs, see [`docs/`](./docs).
 
 ## Planned end-to-end architecture
 
