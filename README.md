@@ -102,7 +102,7 @@ python -m venv venv
 source venv/bin/activate        # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 # Tesseract must also be installed on your system, e.g.:
-#   Debian/Ubuntu: sudo apt-get install tesseract-ocr
+#   Linux: sudo apt install tesseract-ocr
 #   macOS:         brew install tesseract
 uvicorn app.main:app --reload
 ```
