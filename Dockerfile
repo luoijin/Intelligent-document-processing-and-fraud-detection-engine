@@ -2,10 +2,14 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# Install minimal runtime deps for healthcheck (curl) and build essentials
+# Install runtime deps: curl (healthcheck), build-essential (native
+# wheels), tesseract-ocr (Phase 1 OCR engine), libgl1 (OpenCV runtime
+# dependency for headless image processing)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     build-essential \
+    tesseract-ocr \
+    libgl1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for layer caching

@@ -1,19 +1,14 @@
-# Phase 0 — API skeleton only.
-# ML/OCR deps (opencv, easyocr, scikit-learn, xgboost) are added in
-# later phases as each layer is built; keep this image lean so
-# `docker compose up` stays fast to iterate on.
-
-# fastapi==0.111.0
-# uvicorn[standard]>=0.27.0
-# pydantic==2.8.0
-# python-multipart==0.0.4
-
-# fastapi==0.111.0
-# uvicorn==0.27.7
-# pydantic==2.8.0
-# python-multipart==0.0.4
-
+# Phase 0 — API skeleton
 fastapi>=0.112.0
 uvicorn>=0.30.0
 pydantic>=2.8.0
 python-multipart>=0.0.9
+
+# Phase 1 — Vision extraction layer (preprocessing + OCR)
+# Tesseract chosen first per docs/03-MODEL-DEVELOPMENT.md §1
+# ("fastest to integrate; use first"). EasyOCR/TrOCR are Phase 3+
+# upgrades for noisy/handwritten documents.
+opencv-python-headless>=4.10.0
+pytesseract>=0.3.13
+pillow>=10.4.0
+numpy>=1.26.0

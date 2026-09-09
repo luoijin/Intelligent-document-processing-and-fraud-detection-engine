@@ -43,14 +43,28 @@ def check_fastapi_skeleton():
 
 
 def check_requirements_phase0():
+    """Verify the Phase 0 web-framework deps are still present.
+
+    Updated after Phase 1 (see CHANGELOG_PHASE1.md): requirements.txt is
+    now additive across phases rather than Phase-0-exclusive, so this
+    checks for a required *subset* (Phase 0's four core deps) instead of
+    an exact/closed set. A separate Phase 1 dependency check lives in
+    test_phase1.py.
+    """
     try:
         content = (REPO / "requirements.txt").read_text().strip().splitlines()
-        pkgs = {line.split("==")[0].lower() for line in content if line.strip() and not line.startswith("#")}
-        expected = {"fastapi", "uvicorn", "pydantic", "python-multipart"}
-        if not pkgs.issubset(expected):
-            print(f"❌ Unexpected packages in requirements.txt: {pkgs - expected}")
+        import re
+        pkgs = {
+            re.split(r"[><=]", line, 1)[0].strip().lower()
+            for line in content
+            if line.strip() and not line.startswith("#")
+        }
+        required_phase0 = {"fastapi", "uvicorn", "pydantic", "python-multipart"}
+        missing = required_phase0 - pkgs
+        if missing:
+            print(f"❌ Missing Phase 0 packages in requirements.txt: {missing}")
             return False
-        print("✅ requirements.txt contains only Phase 0 dependencies")
+        print("✅ requirements.txt contains all Phase 0 dependencies")
         return True
     except Exception as e:
         print(f"❌ Error reading requirements: {e}")
