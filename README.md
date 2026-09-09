@@ -2,7 +2,7 @@
 
 A portfolio-grade, production-shaped pipeline that ingests receipt images, extracts structured data via computer vision and NLP, and flags statistically anomalous or fraudulent records via a tabular ML model — served behind a documented API and buildable at **$0** end to end.
 
-> **Status:** Phase 0 (Setup) and Phase 1 (Vision Extraction) are complete and validated. Phase 2 (Baseline Structured Extraction) is in progress. See [Roadmap](#roadmap) below.
+> **Status:** Phase 0 (Setup), Phase 1 (Vision Extraction), and Phase 2 (Baseline Structured Extraction) are complete and validated. Phase 3 (Trained Extraction Model) is next. See [Roadmap](#roadmap) below.
 
 ---
 
@@ -32,7 +32,7 @@ SQLite/Postgres]
 FastAPI]
 ```
 
-**Implemented today:** `A → B → C`, exposed via `POST /v1/ocr/extract`. Everything from the structured extractor onward (`D` through `I`) is planned for later phases — see [Roadmap](#roadmap).
+**Implemented today:** `A → B → C → D (baseline)`, exposed via `POST /v1/ocr/extract` and `POST /v1/extraction/baseline`. `D`'s trained-model upgrade onward (`E` through `I`, and LayoutLMv3 specifically) is planned for later phases — see [Roadmap](#roadmap).
 
 ## Tech stack
 
@@ -41,7 +41,7 @@ FastAPI]
 | API framework | FastAPI + Uvicorn | Auto-generated OpenAPI docs at `/docs` |
 | Image preprocessing | OpenCV (headless) | Deskew, denoise, CLAHE contrast normalization |
 | OCR | Tesseract (via `pytesseract`) | Chosen for Phase 1 for its light footprint; EasyOCR/TrOCR are planned upgrades |
-| Entity extraction *(planned)* | Rule-based baseline → fine-tuned LayoutLMv3 | Phase 2 / Phase 3 |
+| Entity extraction | Rule-based baseline (regex + line-position heuristics) — implemented; fine-tuned LayoutLMv3 *(planned)* | Phase 2 (done) / Phase 3 (planned) |
 | Anomaly detection *(planned)* | Isolation Forest → XGBoost | Phase 4 |
 | Storage | SQLite (local) | Postgres (Supabase/Neon free tier) optional for later multi-client use |
 | Containerization | Docker + docker-compose | Single-command local run |
@@ -55,12 +55,14 @@ IDPAFDE/
 ├── app/
 │   ├── main.py            # FastAPI app, routes
 │   ├── preprocessing.py   # deskew, denoise, contrast normalization
-│   └── ocr.py              # Tesseract OCR wrapper
+│   ├── ocr.py              # Tesseract OCR wrapper
+│   └── extraction.py      # Rule-based baseline field extractor (Phase 2)
 ├── scripts/
-│   └── generate_sample_receipts.py  # synthetic receipts (stand-in for SROIE)
+│   └── generate_sample_receipts.py  # synthetic receipts + ground_truth.json (stand-in for SROIE)
 ├── tests/
 │   ├── test_phase0.py     # Phase 0 exit-criteria test
-│   └── test_phase1.py     # Phase 1 exit-criteria test
+│   ├── test_phase1.py     # Phase 1 exit-criteria test
+│   └── test_phase2.py     # Phase 2 exit-criteria test (records to experiments.csv)
 ├── docs/
 │   ├── 00-PROJECT-CHARTER.md
 │   ├── 01-ARCHITECTURE.md
@@ -71,7 +73,10 @@ IDPAFDE/
 │   ├── 06-ROADMAP-MILESTONES.md
 │   ├── 07-TESTING-EVALUATION.md
 │   ├── CODEBASE-DOCUMENTATION.md
-│   └── CHANGELOG/CHANGELOG_PHASE1.md
+│   └── CHANGELOG/
+│       ├── CHANGELOG_PHASE1.md
+│       └── CHANGELOG_PHASE2.md
+├── experiments.csv        # model/metric log (Phase 2+)
 ├── Dockerfile
 ├── docker-compose.yml
 ├── requirements.txt
@@ -136,6 +141,25 @@ curl -X POST http://localhost:8000/v1/ocr/extract \
 
 Accepts `image/jpeg` or `image/png`; returns `422` for unsupported content types or undecodable images.
 
+### `POST /v1/extraction/baseline`
+Runs OCR then the Phase 2 rule-based extractor, returning structured fields (`merchant_name`, `date`, `total_amount`, `currency`, `extraction_confidence`, `ocr_confidence_avg`). Not yet the full `POST /v1/documents` contract — no anomaly score, no persistence (Phase 4/5).
+
+```bash
+curl -X POST http://localhost:8000/v1/extraction/baseline \
+  -F "file=@data/sample_receipts/sample_receipt_01.png"
+```
+
+```json
+{
+  "merchant_name": "GROCERY MART",
+  "date": "2026-09-01",
+  "total_amount": 299.5,
+  "currency": null,
+  "extraction_confidence": 1.0,
+  "ocr_confidence_avg": 94.33
+}
+```
+
 ## Generating sample data
 
 Since the real SROIE dataset requires an authenticated manual download, a synthetic sample-receipt generator stands in for it during development:
@@ -144,16 +168,17 @@ Since the real SROIE dataset requires an authenticated manual download, a synthe
 python scripts/generate_sample_receipts.py
 ```
 
-This writes three sample receipt images (one straight, two skewed) to `data/sample_receipts/`.
+This writes three sample receipt images (one straight, two skewed) plus `ground_truth.json` (merchant_name/date/total_amount per sample, used by `test_phase2.py`) to `data/sample_receipts/`.
 
 ## Testing
 
 ```bash
-python test_phase0.py   # Phase 0 exit-criteria check
-python test_phase1.py   # Phase 1 exit-criteria check (generates samples first if missing)
+python tests/test_phase0.py   # Phase 0 exit-criteria check
+python tests/test_phase1.py   # Phase 1 exit-criteria check (generates samples first if missing)
+python tests/test_phase2.py   # Phase 2 exit-criteria check (measures + records baseline accuracy to experiments.csv)
 ```
 
-Both are automated validations tied directly to the exit criteria defined in `docs/06-ROADMAP-MILESTONES.md`.
+All three are automated validations tied directly to the exit criteria defined in `docs/06-ROADMAP-MILESTONES.md`.
 
 ## Roadmap
 
@@ -161,8 +186,8 @@ Both are automated validations tied directly to the exit criteria defined in `do
 |---|---|---|
 | 0 | Setup — API skeleton, Docker, `/health` | ✅ Complete |
 | 1 | Vision extraction — preprocessing + OCR | ✅ Complete |
-| 2 | Baseline structured extraction (rule-based) | 🔄 In progress |
-| 3 | Trained extraction model (LayoutLMv3) | ⏳ Planned |
+| 2 | Baseline structured extraction (rule-based) | ✅ Complete |
+| 3 | Trained extraction model (LayoutLMv3) | 🔄 Next |
 | 4 | Anomaly / fraud detection layer | ⏳ Planned |
 | 5 | Full service wrapper (`POST /v1/documents`) | ⏳ Planned |
 | 6 | Deployment (free-tier hosting) | ⏳ Planned |
@@ -176,11 +201,13 @@ Documented rather than hidden, per project convention (see `docs/07-TESTING-EVAL
 
 - No authentication on the API — not production-secure as-is.
 - `OCR_ENGINE` env var is not yet wired to a real engine switch; Tesseract is currently hardcoded.
-- Phase 1 exit criteria have been validated against synthetic sample receipts, not the real SROIE dataset (manual authenticated download not available in this environment).
+- Phase 1 and Phase 2 exit criteria have been validated against synthetic sample receipts, not the real SROIE dataset (manual authenticated download not available in this environment). Baseline field-level accuracy (100% on synthetic data — see `experiments.csv`) should not be read as a realistic estimate for real, noisy receipt photos.
+- The baseline extractor's `currency` field is always `null` — no currency-symbol/code detection is implemented.
+- `merchant_name` extraction uses topmost-line position only (Tesseract exposes no font-size signal), not true visual "largest text block" as the plan describes.
 - No file-size limit on uploads yet.
 - No persistence layer yet — each request is processed statelessly (planned for Phase 5).
 
-Full details: [`docs/CHANGELOG/CHANGELOG_PHASE1.md`](./docs/CHANGELOG/CHANGELOG_PHASE1.md) and [`docs/CODEBASE-DOCUMENTATION.md`](./docs/CODEBASE-DOCUMENTATION.md).
+Full details: [`docs/CHANGELOG/CHANGELOG_PHASE1.md`](./docs/CHANGELOG/CHANGELOG_PHASE1.md), [`docs/CHANGELOG/CHANGELOG_PHASE2.md`](./docs/CHANGELOG/CHANGELOG_PHASE2.md), and [`docs/CODEBASE-DOCUMENTATION.md`](./docs/CODEBASE-DOCUMENTATION.md).
 
 ## Cost constraint
 
@@ -201,6 +228,7 @@ This project is designed to be buildable and runnable at **$0** — no paid OCR/
 | [`docs/07-TESTING-EVALUATION.md`](./docs/07-TESTING-EVALUATION.md) | Metrics, test plan, QA checklist |
 | [`docs/CODEBASE-DOCUMENTATION.md`](./docs/CODEBASE-DOCUMENTATION.md) | Enterprise-style documentation of the system as currently implemented |
 | [`docs/CHANGELOG/CHANGELOG_PHASE1.md`](./docs/CHANGELOG/CHANGELOG_PHASE1.md) | Detailed Phase 1 implementation record and deviations from plan |
+| [`docs/CHANGELOG/CHANGELOG_PHASE2.md`](./docs/CHANGELOG/CHANGELOG_PHASE2.md) | Detailed Phase 2 implementation record and deviations from plan |
 
 ## License
 

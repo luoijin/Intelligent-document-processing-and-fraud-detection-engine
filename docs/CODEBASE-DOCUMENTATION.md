@@ -1,7 +1,7 @@
 # IDPAFDE — Codebase Documentation
 
 **Scope of this document:** This documents the codebase *as implemented
-today* (Phase 0 + Phase 1 complete, per `docs/06-ROADMAP-MILESTONES.md`).
+today* (Phase 0 + Phase 1 + Phase 2 complete, per `docs/06-ROADMAP-MILESTONES.md`).
 Where the project's planning docs (`docs/00-*` through `docs/07-*`)
 describe a future capability that does not yet exist in code, this is
 explicitly marked **[PLANNED — Phase N]** rather than described as if it
@@ -17,8 +17,9 @@ current `main` branch.
 IDPAFDE is a document-processing service that will, at full scope,
 ingest receipt images, extract structured fields via OCR + NLP, and
 score records for anomalies/fraud. **As currently implemented**, the
-system provides the first stage of that pipeline: image preprocessing
-and OCR, exposed via a single HTTP API.
+system provides the first two stages of that pipeline: image
+preprocessing + OCR, and a rule-based baseline structured extractor
+layered on top, exposed via two HTTP endpoints.
 
 ### 1.2 System Context
 
@@ -28,22 +29,24 @@ flowchart LR
     API --> Pre[Preprocessing\napp/preprocessing.py]
     Pre --> OCR[OCR Engine\napp/ocr.py — Tesseract]
     OCR -->|tokens + bboxes| API
+    OCR -->|tokens| EXT[Baseline Extractor\napp/extraction.py]
+    EXT -->|fields| API
     API -->|JSON response| Client
 ```
 
-There is currently no persistence layer, no downstream entity
-extraction, and no anomaly scoring — those are **[PLANNED — Phase
-3/4/5]** per the roadmap. The system today is stateless: each request
-is processed independently and nothing is written to disk beyond a
-transient temp file for the duration of one request.
+There is currently no persistence layer, no trained extraction model,
+and no anomaly scoring — those are **[PLANNED — Phase 3/4/5]** per the
+roadmap. The system today is stateless: each request is processed
+independently and nothing is written to disk beyond a transient temp
+file for the duration of one request.
 
 ### 1.3 Design Patterns Used
 
 | Pattern | Where | Rationale |
 |---|---|---|
-| **Layered pipeline** | `preprocessing.py` → `ocr.py` → API route | Each stage has a single, testable responsibility; matches `docs/01-ARCHITECTURE.md` §2 |
-| **Adapter / stable interface** | `run_ocr(image_path) -> OcrResult` | Isolates the OCR engine choice (Tesseract today) so a Phase 3 swap to EasyOCR/TrOCR doesn't change API or caller code |
-| **Dataclass value objects** | `OcrToken`, `OcrResult` | Explicit, typed shape for OCR output instead of passing raw dicts between layers |
+| **Layered pipeline** | `preprocessing.py` → `ocr.py` → `extraction.py` → API route | Each stage has a single, testable responsibility; matches `docs/01-ARCHITECTURE.md` §2 |
+| **Adapter / stable interface** | `run_ocr(image_path) -> OcrResult`, `extract_fields(ocr_result) -> ExtractedFields` | Isolates both the OCR engine choice (Tesseract today) and the extraction strategy (rule-based today) so Phase 3's LayoutLMv3 swap doesn't change API or caller code — `extract_fields` already takes the stable `OcrResult`/`OcrToken` shape, not engine-specific output |
+| **Dataclass value objects** | `OcrToken`, `OcrResult`, `ExtractedFields` | Explicit, typed shape for pipeline output instead of passing raw dicts between layers |
 | **Fail-fast validation** | Content-type check, `ValueError` on undecodable images | Reject bad input at the API boundary rather than deep in the pipeline |
 
 ### 1.4 Technology Stack (as implemented)
@@ -55,6 +58,7 @@ transient temp file for the duration of one request.
 | Validation | Pydantic (via FastAPI) | `>=2.8.0` |
 | Image processing | OpenCV (headless) | `>=4.10.0` |
 | OCR engine | Tesseract via pytesseract | `>=0.3.13` (binary: system `tesseract-ocr`) |
+| Entity extraction | Rule-based (stdlib `re`/`datetime`) | No external dependency — see `app/extraction.py` |
 | Runtime | Python | 3.12 (Docker image); developed/tested against 3.14 locally |
 | Containerization | Docker + docker-compose | — |
 
@@ -121,12 +125,31 @@ sequenceDiagram
     end
 ```
 
-### 2.5 Data Flow — Not Yet Implemented
+### 2.6 `app/extraction.py` — Baseline Structured Extractor (Phase 2)
+
+| Function | Responsibility |
+|---|---|
+| `_group_lines(tokens)` | Groups flat `OcrToken` list into visual lines by `top`-coordinate proximity, sorted left-to-right within each line |
+| `_extract_merchant_name(lines)` | Returns the topmost non-empty line's joined text |
+| `_extract_date(lines)` | Returns the first token matching one of several date regex patterns, normalized to `YYYY-MM-DD` |
+| `_extract_total_amount(lines)` | Returns the largest currency-formatted number on a line containing a total/amount-due keyword, falling back to the largest currency-formatted number anywhere on the document |
+| `ExtractedFields` | Dataclass: `merchant_name`, `date`, `total_amount`, `currency` (always `None` — see Known Gaps), `extraction_confidence` (fraction of the 3 fields successfully extracted) |
+| `extract_fields(ocr_result)` | Composes the above into the single entrypoint, taking an `OcrResult` and returning `ExtractedFields` |
+| `to_dict(fields)` | JSON-serializable projection of `ExtractedFields`, used directly as the `/v1/extraction/baseline` response body |
+
+This is the "baseline (build first)" layer from
+`docs/03-MODEL-DEVELOPMENT.md` §2.1 — pure heuristics, no training
+data or model weights. See `docs/CHANGELOG/CHANGELOG_PHASE2.md` for
+the heuristics' documented deviations from the plan's exact wording
+(e.g. "largest" text block → topmost line, since Tesseract exposes no
+font-size signal).
+
+### 2.7 Data Flow — Not Yet Implemented
 
 The following stages from `docs/01-ARCHITECTURE.md` §1 do not exist in
 code yet and have no module, route, or storage backing them:
 
-- Layout-aware entity extraction (merchant/date/total field parsing) — **[PLANNED — Phase 2/3]**
+- Trained, layout-aware entity extraction (LayoutLMv3 fine-tune) — **[PLANNED — Phase 3]**
 - Feature builder / anomaly scoring — **[PLANNED — Phase 4]**
 - Result persistence (SQLite) — **[PLANNED — Phase 5]**
 - Review queue / active learning — **[PLANNED — Phase 7, stretch]**
@@ -135,9 +158,9 @@ code yet and have no module, route, or storage backing them:
 
 ## 3. API Specifications & Endpoints
 
-Base path: none in Phase 1 (routes are unprefixed except the new
-endpoint, which is versioned). Full `/v1/` prefixing for all routes is
-tracked as a Phase 5 cleanup per `docs/04-API-SPEC.md` §4.
+Base path: none for `/health` (routes are unprefixed except the Phase
+1/2 endpoints, which are versioned). Full `/v1/` prefixing for all
+routes is tracked as a Phase 5 cleanup per `docs/04-API-SPEC.md` §4.
 
 ### 3.1 `GET /health`
 
@@ -204,6 +227,45 @@ contracts matter more.
   instead.
 - No file size limit is enforced at the application layer. This is a
   known gap — see §5.4.
+
+### 3.4 `POST /v1/extraction/baseline`
+
+Accepts one document image, runs OCR then the Phase 2 rule-based
+extractor, returns structured fields. This is a Phase-2-scoped
+endpoint — it is **not** the `POST /documents` contract described in
+`docs/04-API-SPEC.md` §1: no `document_id`, no `anomaly_score`, no
+persistence. Those require the Phase 4 anomaly model and Phase 5
+service wrapper and do not exist yet.
+
+**Request:** `multipart/form-data`, field `file`
+**Accepted content types:** `image/jpeg`, `image/png` (same validation
+as §3.2)
+
+**Response 200:**
+```json
+{
+  "merchant_name": "GROCERY MART",
+  "date": "2026-09-01",
+  "total_amount": 299.5,
+  "currency": null,
+  "extraction_confidence": 1.0,
+  "ocr_confidence_avg": 94.33
+}
+```
+
+- `currency` is always `null` — see §2.6 / Known Gaps.
+- `extraction_confidence` is a simple heuristic (fraction of the 3
+  fields non-null), not a calibrated probability — do not treat it as
+  one. A future phase should replace this with a real confidence
+  signal once one exists (e.g. from a trained model's logits).
+- `ocr_confidence_avg` passes through `OcrResult.avg_confidence`
+  unchanged (Tesseract's native 0–100 scale, same as §3.2's
+  `avg_confidence`) so a caller can see whether a low
+  `extraction_confidence` stems from poor OCR or from the extraction
+  heuristics themselves missing on otherwise-good OCR output.
+
+**Response 422:** same two causes as §3.2 (unsupported content type;
+undecodable image bytes).
 
 ---
 

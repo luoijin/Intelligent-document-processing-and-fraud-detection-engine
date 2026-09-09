@@ -10,7 +10,13 @@ import subprocess
 import sys
 from pathlib import Path
 
-REPO = Path(__file__).parent
+# NOTE (Phase 2 fix): this file lives in tests/, not the repo root, so
+# REPO must resolve to the *parent* of tests/ — Path(__file__).parent
+# pointed at tests/ itself, which silently broke every path below
+# (Dockerfile, requirements.txt, app/main.py, etc. all "missing") the
+# moment this file was moved into tests/. See
+# docs/CHANGELOG/CHANGELOG_PHASE2.md for details.
+REPO = Path(__file__).parent.parent
 
 
 def check_files():
@@ -32,9 +38,18 @@ def check_files():
 
 def check_fastapi_skeleton():
     try:
-        # Import the app module to verify it's syntactically valid
-        sys.path.insert(0, str(REPO / "app"))
-        from main import app  # noqa: F401
+        # Import the app module to verify it's syntactically valid.
+        # NOTE (Phase 2 fix): must add REPO itself to sys.path and
+        # import the `app` package's `main` submodule — main.py does
+        # `from app.ocr import ...` / `from app.extraction import ...`,
+        # which requires `app` to be importable as a package. The
+        # previous approach (adding REPO/"app" to sys.path and doing
+        # `from main import app`) only worked by accident, when this
+        # file lived at the repo root and Python's implicit
+        # script-directory sys.path entry happened to also put REPO on
+        # the path. See docs/CHANGELOG/CHANGELOG_PHASE2.md.
+        sys.path.insert(0, str(REPO))
+        from app.main import app  # noqa: F401
         print("✅ FastAPI app imports successfully")
         return True
     except Exception as e:

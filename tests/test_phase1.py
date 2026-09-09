@@ -17,7 +17,10 @@ Run: python test_phase1.py
 import sys
 from pathlib import Path
 
-REPO = Path(__file__).parent
+# NOTE (Phase 2 fix): REPO must resolve to the repo root, not tests/
+# (where this file lives) — see the identical fix + note in
+# test_phase0.py and docs/CHANGELOG/CHANGELOG_PHASE2.md.
+REPO = Path(__file__).parent.parent
 sys.path.insert(0, str(REPO))
 
 SAMPLE_DIR = REPO / "data" / "sample_receipts"
