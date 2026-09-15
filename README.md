@@ -232,4 +232,4 @@ This project is designed to be buildable and runnable at **$0** — no paid OCR/
 
 ## License
 
-Not yet specified — add a `LICENSE` file before any public/portfolio distribution if you want the code's usage terms to be explicit.
+This project is licensed under the [MIT License](LICENSE).
