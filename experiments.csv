@@ -1,0 +1,4 @@
+date,model,dataset,n_samples,merchant_name_acc,date_acc,total_amount_acc,overall_field_accuracy,notes
+2026-09-15T05:26:47Z,rule_based_baseline (Phase 2),synthetic_sample_receipts (SROIE stand-in),3,1.000,1.000,1.000,1.000,"Baseline for Phase 3 (LayoutLMv3) to beat. Synthetic data, not real SROIE."
+2026-09-15T05:26:48Z,isolation_forest (Phase 4),synthetic_fraud_val (n_fraud=12),137,n/a,n/a,n/a,0.667,"precision=1.000, recall=0.500, f1=0.667 at best threshold=0.60. Synthetic fraud patterns only — not a real-world fraud-rate estimate."
+2026-09-15T05:26:48Z,xgboost (Phase 4),synthetic_fraud_val (n_fraud=12),137,n/a,n/a,n/a,0.667,"precision=0.778, recall=0.583, f1=0.667 at best threshold=0.25. Synthetic fraud patterns only — not a real-world fraud-rate estimate."

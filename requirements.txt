@@ -12,3 +12,10 @@ opencv-python-headless>=4.10.0
 pytesseract>=0.3.13
 pillow>=10.4.0
 numpy>=1.26.0
+
+# Phase 4/5 — Anomaly/fraud scoring, served live by the API (not
+# training-only, unlike Phase 3's requirements-phase3.txt — Isolation
+# Forest inference happens on every POST /v1/documents call)
+scikit-learn>=1.5.0
+xgboost>=2.1.0
+joblib>=1.4.0

@@ -2,7 +2,7 @@
 
 A portfolio-grade, production-shaped pipeline that ingests receipt images, extracts structured data via computer vision and NLP, and flags statistically anomalous or fraudulent records via a tabular ML model — served behind a documented API and buildable at **$0** end to end.
 
-> **Status:** Phase 0 (Setup), Phase 1 (Vision Extraction), and Phase 2 (Baseline Structured Extraction) are complete and validated. Phase 3 (Trained Extraction Model) is next. See [Roadmap](#roadmap) below.
+> **Status:** Phases 0-2, 4, and 5 are complete and validated. Phase 3 (Trained Extraction Model) is scaffolded but not executed — blocked on GPU/`huggingface.co` access unavailable in the build environment, not skipped by choice (see [`CHANGELOG_PHASE3.md`](./docs/CHANGELOG/CHANGELOG_PHASE3.md)). Phase 5's service wrapper therefore runs on the Phase 2 baseline extractor as a documented deviation. See [Roadmap](#roadmap) below.
 
 ---
 
@@ -187,10 +187,10 @@ All three are automated validations tied directly to the exit criteria defined i
 | 0 | Setup — API skeleton, Docker, `/health` | ✅ Complete |
 | 1 | Vision extraction — preprocessing + OCR | ✅ Complete |
 | 2 | Baseline structured extraction (rule-based) | ✅ Complete |
-| 3 | Trained extraction model (LayoutLMv3) | 🔄 Next |
-| 4 | Anomaly / fraud detection layer | ⏳ Planned |
-| 5 | Full service wrapper (`POST /v1/documents`) | ⏳ Planned |
-| 6 | Deployment (free-tier hosting) | ⏳ Planned |
+| 3 | Trained extraction model (LayoutLMv3) | 🔄 Scaffolded, not met — see [`CHANGELOG_PHASE3.md`](./docs/CHANGELOG/CHANGELOG_PHASE3.md) |
+| 4 | Anomaly / fraud detection layer | ✅ Complete |
+| 5 | Full service wrapper (`POST /v1/documents`) | ✅ Complete (built on Phase 2 extractor — see [`CHANGELOG_PHASE5.md`](./docs/CHANGELOG/CHANGELOG_PHASE5.md)) |
+| 6 | Deployment (free-tier hosting) | ⏳ Planned — Dockerfile needs revisiting for Phase 4/5 deps first |
 | 7 | *(Stretch)* Active learning / retraining loop | ⏳ Optional |
 
 Full detail and exit criteria: [`docs/06-ROADMAP-MILESTONES.md`](./docs/06-ROADMAP-MILESTONES.md).

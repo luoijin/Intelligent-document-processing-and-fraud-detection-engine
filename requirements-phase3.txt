@@ -1,0 +1,16 @@
+# Phase 3 — Trained Extraction Model (LayoutLMv3 fine-tuning)
+#
+# Deliberately NOT merged into requirements.txt: these are heavy,
+# GPU-oriented, training-time-only dependencies (per
+# docs/01-ARCHITECTURE.md component boundaries — the served API stays
+# on the light CPU-only OCR/extraction stack; training happens offline
+# on Colab per docs/03-MODEL-DEVELOPMENT.md §5). Only install this file
+# when running scripts/train_layoutlmv3.py or tests/test_phase3.py.
+#
+# Install: pip install -r requirements-phase3.txt
+
+torch>=2.2.0
+transformers>=4.44.0
+datasets>=2.20.0
+accelerate>=0.33.0
+seqeval>=1.2.2
