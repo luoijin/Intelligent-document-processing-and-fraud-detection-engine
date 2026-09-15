@@ -31,7 +31,7 @@ REPO = Path(__file__).parent.parent
 sys.path.insert(0, str(REPO))
 
 MODEL_DIR = REPO / "models" / "layoutlmv3" / "v1"
-DATA_PATH = REPO / "data" / "layoutlm" / "train.jsonl"
+DATA_PATH = REPO / "data" / "layoutlm" / "val.jsonl"
 IMAGE_DIR = REPO / "data" / "sample_receipts"
 EXPERIMENTS_LOG = REPO / "experiments.csv"
 
