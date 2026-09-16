@@ -2,7 +2,7 @@
 
 A portfolio-grade, production-shaped pipeline that ingests receipt images, extracts structured data via computer vision and NLP, and flags statistically anomalous or fraudulent records via a tabular ML model — served behind a documented API and buildable at **$0** end to end.
 
-> **Status:** Phases 0-2, 4, and 5 are complete and validated. Phase 3 (Trained Extraction Model) is scaffolded but not executed — blocked on GPU/`huggingface.co` access unavailable in the build environment, not skipped by choice (see [`CHANGELOG_PHASE3.md`](./docs/CHANGELOG/CHANGELOG_PHASE3.md)). Phase 5's service wrapper therefore runs on the Phase 2 baseline extractor as a documented deviation. See [Roadmap](#roadmap) below.
+> **Status:** Phases 0-5 are complete and validated. Phase 3 (Trained Extraction Model) fine-tuned LayoutLMv3 on real SROIE data and evaluated it against the Phase 2 baseline (F1 0.832 vs. baseline 0.889 — does not beat it, which the exit criteria treats as a valid, documentable result; see [`CHANGELOG_PHASE3.md`](./docs/CHANGELOG/CHANGELOG_PHASE3.md)). The fine-tuned model is not yet wired into the served API — Phase 5's service wrapper still runs on the Phase 2 baseline extractor as a documented deviation. See [Roadmap](#roadmap) below.
 
 ---
 
@@ -32,7 +32,7 @@ SQLite/Postgres]
 FastAPI]
 ```
 
-**Implemented today:** `A → B → C → D (baseline)`, exposed via `POST /v1/ocr/extract` and `POST /v1/extraction/baseline`. `D`'s trained-model upgrade onward (`E` through `I`, and LayoutLMv3 specifically) is planned for later phases — see [Roadmap](#roadmap).
+**Implemented today:** `A → B → C → D (baseline)`, exposed via `POST /v1/ocr/extract` and `POST /v1/extraction/baseline`. `D`'s trained-model upgrade (LayoutLMv3, Phase 3) has been fine-tuned and evaluated (see [Roadmap](#roadmap)) but is not yet swapped into the served endpoint; `E` through `I` are planned for later phases.
 
 ## Tech stack
 
@@ -41,7 +41,7 @@ FastAPI]
 | API framework | FastAPI + Uvicorn | Auto-generated OpenAPI docs at `/docs` |
 | Image preprocessing | OpenCV (headless) | Deskew, denoise, CLAHE contrast normalization |
 | OCR | Tesseract (via `pytesseract`) | Chosen for Phase 1 for its light footprint; EasyOCR/TrOCR are planned upgrades |
-| Entity extraction | Rule-based baseline (regex + line-position heuristics) — implemented; fine-tuned LayoutLMv3 *(planned)* | Phase 2 (done) / Phase 3 (planned) |
+| Entity extraction | Rule-based baseline (regex + line-position heuristics) — served today; fine-tuned LayoutLMv3 — trained and evaluated, not yet served | Phase 2 (done, serving) / Phase 3 (done, not wired into API) |
 | Anomaly detection *(planned)* | Isolation Forest → XGBoost | Phase 4 |
 | Storage | SQLite (local) | Postgres (Supabase/Neon free tier) optional for later multi-client use |
 | Containerization | Docker + docker-compose | Single-command local run |
@@ -58,11 +58,18 @@ IDPAFDE/
 │   ├── ocr.py              # Tesseract OCR wrapper
 │   └── extraction.py      # Rule-based baseline field extractor (Phase 2)
 ├── scripts/
-│   └── generate_sample_receipts.py  # synthetic receipts + ground_truth.json (stand-in for SROIE)
+│   ├── generate_sample_receipts.py  # synthetic receipts + ground_truth.json (stand-in for SROIE)
+│   ├── prepare_layoutlm_labels.py   # BIO-labels the 3 synthetic samples (Phase 3 smoke test only)
+│   └── train_layoutlmv3.py          # fine-tunes LayoutLMv3-base; run on Colab (T4), not locally
 ├── tests/
 │   ├── test_phase0.py     # Phase 0 exit-criteria test
 │   ├── test_phase1.py     # Phase 1 exit-criteria test
-│   └── test_phase2.py     # Phase 2 exit-criteria test (records to experiments.csv)
+│   ├── test_phase2.py     # Phase 2 exit-criteria test (records to experiments.csv)
+│   └── test_phase3.py     # Phase 3 exit-criteria test — evaluates models/layoutlmv3/v1/ against data/layoutlm/val.jsonl
+├── data/
+│   └── layoutlm/          # train.jsonl / val.jsonl / test.jsonl — SROIE BIO-labeled splits (Phase 3, gitignored)
+├── models/
+│   └── layoutlmv3/v1/     # fine-tuned checkpoint (Phase 3, gitignored)
 ├── docs/
 │   ├── 00-PROJECT-CHARTER.md
 │   ├── 01-ARCHITECTURE.md
@@ -75,7 +82,11 @@ IDPAFDE/
 │   ├── CODEBASE-DOCUMENTATION.md
 │   └── CHANGELOG/
 │       ├── CHANGELOG_PHASE1.md
-│       └── CHANGELOG_PHASE2.md
+│       ├── CHANGELOG_PHASE2.md
+│       ├── CHANGELOG_PHASE3.md
+│       ├── CHANGELOG_PHASE4.md
+│       └── CHANGELOG_PHASE5.md
+├── requirements-phase3.txt  # train-time-only deps (torch, transformers, seqeval...), Phase 3
 ├── experiments.csv        # model/metric log (Phase 2+)
 ├── Dockerfile
 ├── docker-compose.yml
@@ -187,7 +198,7 @@ All three are automated validations tied directly to the exit criteria defined i
 | 0 | Setup — API skeleton, Docker, `/health` | ✅ Complete |
 | 1 | Vision extraction — preprocessing + OCR | ✅ Complete |
 | 2 | Baseline structured extraction (rule-based) | ✅ Complete |
-| 3 | Trained extraction model (LayoutLMv3) | 🔄 Scaffolded, not met — see [`CHANGELOG_PHASE3.md`](./docs/CHANGELOG/CHANGELOG_PHASE3.md) |
+| 3 | Trained extraction model (LayoutLMv3) | ✅ Complete — F1 0.832 vs. Phase 2 baseline 0.889 (does not beat it; documented, valid per exit criteria) — see [`CHANGELOG_PHASE3.md`](./docs/CHANGELOG/CHANGELOG_PHASE3.md) |
 | 4 | Anomaly / fraud detection layer | ✅ Complete |
 | 5 | Full service wrapper (`POST /v1/documents`) | ✅ Complete (built on Phase 2 extractor — see [`CHANGELOG_PHASE5.md`](./docs/CHANGELOG/CHANGELOG_PHASE5.md)) |
 | 6 | Deployment (free-tier hosting) | ⏳ Planned — Dockerfile needs revisiting for Phase 4/5 deps first |
@@ -201,7 +212,9 @@ Documented rather than hidden, per project convention (see `docs/07-TESTING-EVAL
 
 - No authentication on the API — not production-secure as-is.
 - `OCR_ENGINE` env var is not yet wired to a real engine switch; Tesseract is currently hardcoded.
-- Phase 1 and Phase 2 exit criteria have been validated against synthetic sample receipts, not the real SROIE dataset (manual authenticated download not available in this environment). Baseline field-level accuracy (100% on synthetic data — see `experiments.csv`) should not be read as a realistic estimate for real, noisy receipt photos.
+- Phase 1 and Phase 2 exit criteria have been validated against synthetic sample receipts, not the real SROIE dataset (manual authenticated download not available in the environment those phases were built in). Baseline field-level accuracy (100% on synthetic data — see `experiments.csv`) should not be read as a realistic estimate for real, noisy receipt photos. Phase 3, by contrast, was trained and evaluated on real SROIE data — see `CHANGELOG_PHASE3.md`.
+- Phase 3's fine-tuned model is trained and evaluated but not yet wired into the served API — `/v1/extraction/baseline` still runs the Phase 2 rule-based extractor. Serving the trained model is a Phase 5+ integration task, not yet done.
+- Phase 3's validation set (93 samples) is slightly below the 100-300 document minimum `docs/02-DATA-STRATEGY.md` §3 calls usable; treat the 0.832 F1 as a solid but not maximally precise generalization estimate — see `CHANGELOG_PHASE3.md` for the trade-off considered.
 - The baseline extractor's `currency` field is always `null` — no currency-symbol/code detection is implemented.
 - `merchant_name` extraction uses topmost-line position only (Tesseract exposes no font-size signal), not true visual "largest text block" as the plan describes.
 - No file-size limit on uploads yet.
