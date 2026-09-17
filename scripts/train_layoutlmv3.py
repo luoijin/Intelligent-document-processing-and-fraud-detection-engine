@@ -1,159 +1,144 @@
-"""
-scripts.train_layoutlmv3
--------------------------
-Phase 3 (docs/03-MODEL-DEVELOPMENT.md §2.2) fine-tuning script:
-LayoutLMv3-base token classification over
-`data/layoutlm/train.jsonl` (produced by `prepare_layoutlm_labels.py`).
-
-WHERE TO RUN THIS: Google Colab free tier (T4 GPU), per
-docs/03-MODEL-DEVELOPMENT.md §5 ("LayoutLM fine-tuning: Google Colab
-free T4 GPU"). This script is NOT run as part of the automated test
-suite and is NOT expected to work in the project's CPU-only local/CI
-environment — it needs a GPU and network access to huggingface.co to
-pull the pretrained `microsoft/layoutlmv3-base` weights, neither of
-which the $0/local-first guardrail-compliant CI environment provides
-on demand. This is a documented exception to "local-first": *training*
-happens on free external compute (Colab), the *served* model is a
-static artifact loaded locally at inference time — same pattern the
-plan already uses for OCR/anomaly models, just with an extra offline
-step.
-
-Colab usage:
-    1. Upload this repo (or just app/, data/layoutlm/, this script).
-    2. !pip install transformers datasets seqeval accelerate
-    3. !python train_layoutlmv3.py
-    4. Download models/layoutlmv3/v1/ back into the repo (gitignored;
-       see docs/03-MODEL-DEVELOPMENT.md §4 "never committed to git if
-       large").
-
-Exit criteria this feeds (docs/06-ROADMAP-MILESTONES.md, Phase 3):
-"fine-tuned model's F1 documented and compared against the Phase 2
-baseline" — this script trains and saves the model; run
-`tests/test_phase3.py` afterward to compute and record that F1 against
-the Phase 2 number in `experiments.csv`.
-"""
-from __future__ import annotations
-
 import json
-import sys
+import torch
 from pathlib import Path
+from PIL import Image
+from torch.utils.data import Dataset
+from transformers import (
+    LayoutLMv3Processor,
+    LayoutLMv3ForTokenClassification,
+    TrainingArguments,
+    Trainer,
+    DataCollatorForTokenClassification
+)
 
+# 1. Setup Paths
 REPO = Path(__file__).parent.parent
-DATA_PATH = REPO / "data" / "layoutlm" / "train.jsonl"
-MODEL_OUT_DIR = REPO / "models" / "layoutlmv3" / "v1"
-BASE_MODEL = "microsoft/layoutlmv3-base"
+DATA_DIR = REPO / "data" / "layoutlm"
+IMAGE_DIR = REPO / "data" / "sample_receipts"
+OUTPUT_DIR = REPO / "models" / "layoutlmv3" / "v1"
 
-LABELS = [
-    "O",
-    "B-MERCHANT", "I-MERCHANT",
-    "B-DATE", "I-DATE",
-    "B-TOTAL", "I-TOTAL",
-]
-LABEL2ID = {label: i for i, label in enumerate(LABELS)}
-ID2LABEL = {i: label for i, label in enumerate(LABELS)}
+# 2. Label Map
+label_list = ["O", "B-MERCHANT", "I-MERCHANT", "B-DATE", "I-DATE", "B-TOTAL", "I-TOTAL"]
+my_id2label = {i: l for i, l in enumerate(label_list)}
+my_label2id = {l: i for i, l in enumerate(label_list)}
 
+processor = LayoutLMv3Processor.from_pretrained("microsoft/layoutlmv3-base", apply_ocr=False)
 
-def load_records() -> list[dict]:
-    if not DATA_PATH.exists():
-        print(f"No labeled data at {DATA_PATH}. "
-              f"Run scripts/prepare_layoutlm_labels.py first.")
-        sys.exit(1)
-    with open(DATA_PATH) as f:
-        return [json.loads(line) for line in f if line.strip()]
-
-
-def normalize_bbox(box, width, height):
-    """LayoutLMv3 expects bboxes on a 0-1000 scale, normalized to image size."""
+def normalize_bbox(bbox, width, height):
     return [
-        int(1000 * box[0] / width),
-        int(1000 * box[1] / height),
-        int(1000 * box[2] / width),
-        int(1000 * box[3] / height),
+        max(0, min(1000, int(1000 * (bbox[0] / width)))),
+        max(0, min(1000, int(1000 * (bbox[1] / height)))),
+        max(0, min(1000, int(1000 * (bbox[2] / width)))),
+        max(0, min(1000, int(1000 * (bbox[3] / height)))),
     ]
 
+# 3. PyTorch Dataset (unchanged from your working version)
+class SROIEPyTorchDataset(Dataset):
+    def __init__(self, jsonl_path, image_dir, processor):
+        self.processor = processor
+        self.image_dir = Path(image_dir)
+        self.samples = []
+        with open(jsonl_path, "r", encoding="utf-8") as f:
+            for line in f:
+                self.samples.append(json.loads(line))
 
-def main() -> None:
-    try:
-        import torch
-        from PIL import Image
-        from transformers import (
-            LayoutLMv3ForTokenClassification,
-            LayoutLMv3Processor,
-            Trainer,
-            TrainingArguments,
-        )
-        from datasets import Dataset
-    except ImportError as e:
-        print(f"Missing dependency: {e}")
-        print("Install with: pip install torch transformers datasets "
-              "accelerate seqeval  (see requirements-phase3.txt)")
-        print("These are deliberately NOT in the main requirements.txt — "
-              "they're training-time-only and GPU-oriented, not part of "
-              "the served CPU inference image (see docs/01-ARCHITECTURE.md "
-              "component boundaries).")
-        sys.exit(1)
+    def __len__(self):
+        return len(self.samples)
 
-    records = load_records()
-    print(f"Loaded {len(records)} labeled samples from {DATA_PATH}")
-    if len(records) < 50:
-        print(
-            f"⚠️  n={len(records)} is far below the 100-300 labeled "
-            f"documents docs/02-DATA-STRATEGY.md §3 calls a usable "
-            f"minimum. A model trained on this many samples will not "
-            f"produce a meaningful F1 — this run is a pipeline smoke "
-            f"test (does the training loop run end-to-end without "
-            f"crashing?), not the real Phase 3 result. Do not record "
-            f"its F1 in experiments.csv as the Phase 3 exit-criteria "
-            f"number; label more real data first."
-        )
+    def __getitem__(self, idx):
+        item = self.samples[idx]
+        image_path = self.image_dir / item["image_file"]
+        image = Image.open(image_path).convert("RGB")
+        w, h = image.size
 
-    processor = LayoutLMv3Processor.from_pretrained(
-        BASE_MODEL, apply_ocr=False
-    )
-    model = LayoutLMv3ForTokenClassification.from_pretrained(
-        BASE_MODEL, num_labels=len(LABELS), id2label=ID2LABEL, label2id=LABEL2ID
-    )
+        words = item["tokens"]
+        labels = item.get("ner_tags") or item.get("labels") or []
+        bboxes = item["bboxes"]
 
-    image_dir = REPO / "data" / "sample_receipts"
+        if len(labels) == 0:
+            labels = [0] * len(words)
 
-    def encode(example):
-        image = Image.open(image_dir / example["image"]).convert("RGB")
-        width, height = image.size
-        boxes = [normalize_bbox(b, width, height) for b in example["bboxes"]]
-        encoding = processor(
-            image,
-            example["tokens"],
+        min_len = min(len(words), len(labels), len(bboxes))
+        words = words[:min_len]
+        labels = labels[:min_len]
+        boxes = [normalize_bbox(box, w, h) for box in bboxes[:min_len]]
+
+        encoding = self.processor(
+            images=image,
+            text=words,
             boxes=boxes,
-            word_labels=[LABEL2ID[l] for l in example["labels"]],
             truncation=True,
             padding="max_length",
-            return_tensors="pt",
+            max_length=512,
+            return_tensors="pt"
         )
-        return {k: v.squeeze(0) for k, v in encoding.items()}
 
-    dataset = Dataset.from_list(records).map(encode, remove_columns=records[0].keys())
-    dataset.set_format("torch")
+        word_ids = encoding.word_ids(batch_index=0)
+        aligned_labels = []
 
-    training_args = TrainingArguments(
-        output_dir=str(MODEL_OUT_DIR / "checkpoints"),
-        num_train_epochs=20,
-        per_device_train_batch_size=2,
-        learning_rate=5e-5,
-        logging_steps=1,
-        save_strategy="no",
-        report_to=[],
-    )
+        for word_idx in word_ids:
+            if word_idx is None:
+                aligned_labels.append(-100)
+            elif word_idx < len(labels):
+                aligned_labels.append(labels[word_idx])
+            else:
+                aligned_labels.append(-100)
 
-    trainer = Trainer(model=model, args=training_args, train_dataset=dataset)
-    trainer.train()
+        item_dict = {k: v.squeeze(0) for k, v in encoding.items()}
+        item_dict["labels"] = torch.tensor(aligned_labels, dtype=torch.long)
+        return item_dict
 
-    MODEL_OUT_DIR.mkdir(parents=True, exist_ok=True)
-    model.save_pretrained(MODEL_OUT_DIR)
-    processor.save_pretrained(MODEL_OUT_DIR)
-    print(f"\nSaved fine-tuned model to {MODEL_OUT_DIR}")
-    print("Next: python tests/test_phase3.py  (computes field-level F1 "
-          "and compares against the Phase 2 baseline in experiments.csv)")
+train_dataset = SROIEPyTorchDataset(
+    jsonl_path=DATA_DIR / "train.jsonl",
+    image_dir=IMAGE_DIR,
+    processor=processor
+)
 
+# NEW: validation set, so training isn't flying blind
+eval_dataset = SROIEPyTorchDataset(
+    jsonl_path=DATA_DIR / "val.jsonl",
+    image_dir=IMAGE_DIR,
+    processor=processor
+)
 
-if __name__ == "__main__":
-    main()
+# 4. Model Setup
+model = LayoutLMv3ForTokenClassification.from_pretrained(
+    "microsoft/layoutlmv3-base",
+    num_labels=len(label_list),
+    id2label=my_id2label,
+    label2id=my_label2id
+)
+
+# 5. Training Configuration
+# CHANGED: max_steps=500 -> num_train_epochs=15 (real epoch count for 438 samples,
+# instead of the leftover smoke-test step cap). Added eval every epoch, and
+# keep the checkpoint with the lowest validation loss rather than just the last one.
+training_args = TrainingArguments(
+    output_dir=str(OUTPUT_DIR),
+    num_train_epochs=15,
+    per_device_train_batch_size=2,
+    per_device_eval_batch_size=2,
+    learning_rate=2e-5,
+    logging_steps=20,
+    eval_strategy="epoch",
+    save_strategy="epoch",
+    save_total_limit=2,
+    load_best_model_at_end=True,
+    metric_for_best_model="eval_loss",
+    greater_is_better=False,
+    fp16=torch.cuda.is_available(),
+)
+
+trainer = Trainer(
+    model=model,
+    args=training_args,
+    train_dataset=train_dataset,
+    eval_dataset=eval_dataset,
+    data_collator=DataCollatorForTokenClassification(processor.tokenizer),
+)
+
+print("Starting LayoutLMv3 training...")
+trainer.train()
+trainer.save_model(str(OUTPUT_DIR))
+processor.save_pretrained(str(OUTPUT_DIR))
+print(f"Model saved successfully to {OUTPUT_DIR}")
